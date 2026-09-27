@@ -1,0 +1,8 @@
+# Override para máquinas con GPU AMD/Intel (iGPU vía /dev/dri).
+# Uso: docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d
+name: ia
+
+services:
+    ollama:
+        devices:
+            - /dev/dri:/dev/dri

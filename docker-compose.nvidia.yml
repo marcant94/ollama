@@ -1,0 +1,9 @@
+# Override para máquinas con GPU NVIDIA.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d
+name: ia
+
+services:
+    ollama:
+        runtime: nvidia
+        environment:
+            NVIDIA_VISIBLE_DEVICES: all

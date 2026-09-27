@@ -1,0 +1,26 @@
+# name: ollama
+
+services:
+    ollama:
+        container_name: ollama
+        build:
+            dockerfile: ${OLLAMA_DOCKERFILE}
+            context: .
+        volumes:
+            - ollama_data:/root/.ollama
+            - ./scripts:/scripts
+        environment:
+            OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL}
+            OLLAMA_KEEP_ALIVE: 10m
+        mem_limit: ${OLLAMA_MEM_LIMIT:-0}
+        cpus: ${OLLAMA_CPUS:-0}
+        ports:
+            - 11434:11434
+        restart: unless-stopped
+
+volumes:
+    ollama_data:
+
+networks:
+    default:
+        name: proxylan
