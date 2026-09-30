@@ -1,6 +1,6 @@
 
-version="qwen2.5-coder:3b" # qwen2.5-coder:3b-instruct-q4_K_M
-# 1.9GB
+version="qwen2.5-coder:1.5b" # qwen2.5-coder:1.5b-instruct-q4_K_M
+# 986MB
 # 32K
 
 # completion
