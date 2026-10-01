@@ -1,7 +1,7 @@
 
 # original="maternion/ling-3.0-tiny:8b-Q4_K_M"
-original="ollama run hf.co/inclusionAI/Ling-3.0-tiny-GGUF:Q4_K_M"
-alias_name="ling-3.0-tiny:8b"
+original="hf.co/inclusionAI/Ling-3.0-tiny-GGUF:Q4_K_M"
+alias_name="ling3.0-tiny:8b"
 # 4.8GB
 # 128K
 
