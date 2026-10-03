@@ -1,5 +1,4 @@
 
-# original="maternion/ling-3.0-tiny:8b-Q4_K_M"
 original="hf.co/inclusionAI/Ling-3.0-tiny-GGUF:Q4_K_M"
 alias_name="ling3.0-tiny:8b"
 # 4.8GB
@@ -7,8 +6,7 @@ alias_name="ling3.0-tiny:8b"
 
 # completion
 # tools
-# thinking (Ollama no lo reporta en /api/tags para este modelo; chat-hub
-# consulta POST /api/show por modelo y une las capabilities)
+# thinking
 
 ollama pull "$original"
 ollama cp "$original" "$alias_name"

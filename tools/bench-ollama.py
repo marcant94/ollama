@@ -4,11 +4,17 @@
 # - Calienta el modelo con un "hola" sin medirlo.
 # - 3 mediciones por configuracion; tok/s = eval_count / eval_duration.
 # - Los modelos con capability "thinking" se prueban con y sin razonamiento.
-import json, time, urllib.request
+import datetime
+import json
+import os
+import time
+import urllib.request
 
 HOST = "http://localhost:11434"
 PROMPT = "Escribe un cuento de unas 150 palabras sobre un gato astronauta."
 N = 3
+HISTORIAL = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "bench-historial.json")
 
 def post(path, payload, timeout=600):
     req = urllib.request.Request(HOST + path, data=json.dumps(payload).encode(),
@@ -38,18 +44,50 @@ def unload_all():
     for m in loaded_models():
         unload(m)
 
+def cargar_historial():
+    try:
+        with open(HISTORIAL, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"mediciones": []}
+
+
+def guardar_historial(hist):
+    with open(HISTORIAL, "w", encoding="utf-8") as f:
+        json.dump(hist, f, indent=2, ensure_ascii=False)
+    print(f"\nHistorial guardado en {HISTORIAL}", flush=True)
+
+
+def ficha_modelo(nombre):
+    """Parámetros, familia y cuantización vía /api/show (None si falla)."""
+    try:
+        show = post("/api/show", {"model": nombre}, timeout=30)
+        info = show.get("model_info", {})
+        detalles = show.get("details", {})
+        return {
+            "parametros": info.get("general.parameter_count"),
+            "familia": detalles.get("family"),
+            "cuantizacion": detalles.get("quantization_level"),
+        }
+    except Exception as e:
+        print(f"  aviso: /api/show fallo para {nombre}: {e}", flush=True)
+        return {"parametros": None, "familia": None, "cuantizacion": None}
+
+
 print("Ollama", get("/api/version").get("version"), flush=True)
 
 models = [m["name"] for m in get("/api/tags")["models"]]
 print(f"Modelos: {models}", flush=True)
 
 results = []  # (modelo, config, min, max, media, tokens min-max, truncado?)
+hist = cargar_historial()
 
 unload_all()
 
 for m in models:
     print(f"\n=== {m} ===", flush=True)
     unload_all()
+    ficha = ficha_modelo(m)
     try:
         caps = post("/api/show", {"name": m}, timeout=30).get("capabilities", [])
     except Exception as e:
@@ -88,8 +126,26 @@ for m in models:
         trunc = max(ec_list) >= 1024
         results.append((m, label, min(tps_list), max(tps_list),
                         sum(tps_list) / len(tps_list), min(ec_list), max(ec_list), trunc))
+        try:
+            tamano = next(x.get("size") for x in get("/api/tags")["models"]
+                          if x["name"] == m)
+        except Exception:
+            tamano = None
+        hist["mediciones"].append({
+            "fecha": datetime.date.today().isoformat(),
+            "modelo": m,
+            "config": label,
+            "tps_min": round(min(tps_list), 1),
+            "tps_max": round(max(tps_list), 1),
+            "tps_media": round(sum(tps_list) / len(tps_list), 1),
+            "parametros": ficha.get("parametros"),
+            "tamano_bytes": tamano,
+            "familia": ficha.get("familia"),
+            "cuantizacion": ficha.get("cuantizacion"),
+        })
 
 unload_all()
+guardar_historial(hist)
 
 # Tabla resumen ordenada por media de tok/s descendente.
 if results:

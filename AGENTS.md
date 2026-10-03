@@ -18,7 +18,9 @@ Servicio Ollama dockerizado (CPU o GPU NVIDIA/AMD) que da servicio a chat-hub (r
 | `dkr-ver-log-ollama.sh` | Logs del contenedor |
 | `dkr-acceder-ollama.sh` | Shell dentro del contenedor |
 | `scripts/install-*.sh` | Descarga de modelos por máquina (torre, laptop, vps, orquestador) |
-| `bench-ollama.py` | Benchmark de tok/s de los modelos instalados (unload, warmup, N mediciones, resumen) |
+| `tools/bench-ollama.py` | Benchmark de tok/s de los modelos instalados (unload, warmup, N mediciones, resumen). Guarda el historial en `tools/bench-historial.json` (ignorado en git, específico de la máquina) |
+| `tools/gestion-ollama.py` | Menú interactivo: listar instalados/cargados, arrancar con ctx defecto/4K/8K/16K, descargar y borrar modelos |
+| `tools/estimar-modelo.py` | Estima tok/s de un modelo sin descargarlo (URL de ollama.com o HuggingFace, o `params/tamaño`), calibrado con el historial local |
 | `.env-base/.env-vps` | Plantilla de variables (límites de RAM/CPU, GPU) |
 
 ## Variables de entorno (.env, no se commitea)
@@ -33,7 +35,9 @@ Servicio Ollama dockerizado (CPU o GPU NVIDIA/AMD) que da servicio a chat-hub (r
 - Compilar/arrancar: `sh dkr-compilar-ollama.sh` (elige compose override por GPU).
 - Ver logs: `sh dkr-ver-log-ollama.sh`.
 - Instalar un modelo nuevo: copiar el patrón de `scripts/install-torre-*.sh` (`ollama pull` + alias corto con `ollama create` si conviene).
-- Benchmark: `python3 scripts/bench-ollama.py` (desde el host, con Ollama levantado).
+- Benchmark: `python3 tools/bench-ollama.py` (desde el host, con Ollama levantado).
+- Gestionar modelos: `python3 tools/gestion-ollama.py` (menú: listar instalados/cargados, arrancar con ctx por defecto/4K/8K/16K, descargar de memoria, borrar).
+- Estimar antes de descargar: `python3 tools/estimar-modelo.py <url de ollama.com o HuggingFace>` (usa el historial local para calibrar).
 - El compose del repo `chathub` necesita que este servicio esté levantado para resolver `http://ollama:11434` (misma red `proxylan`).
 
 ## Notas
