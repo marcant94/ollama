@@ -61,7 +61,7 @@ def guardar_historial(hist):
 
 
 def ficha_modelo(nombre):
-    """Parámetros, familia, cuantización, MoE y capabilities vía /api/show."""
+    """Parámetros, familia, cuantización, MoE, capabilities y template vía /api/show."""
     try:
         show = post("/api/show", {"model": nombre}, timeout=30)
         info = show.get("model_info", {})
@@ -80,12 +80,13 @@ def ficha_modelo(nombre):
             "expertos_total": expertos_total,
             "expertos_activos": expertos_activos,
             "capabilities": show.get("capabilities", []),
+            "template": show.get("template") or "",
         }
     except Exception as e:
         print(f"  aviso: /api/show fallo para {nombre}: {e}", flush=True)
         return {"parametros": None, "familia": None, "cuantizacion": None,
                 "moe": None, "expertos_total": None, "expertos_activos": None,
-                "capabilities": []}
+                "capabilities": [], "template": ""}
 
 
 def ya_medido(hist, modelo, config):
@@ -177,6 +178,7 @@ for m in models:
             "expertos_total": ficha.get("expertos_total"),
             "expertos_activos": ficha.get("expertos_activos"),
             "capabilities": ficha.get("capabilities"),
+            "template": ficha.get("template"),
         })
 
 unload_all()
