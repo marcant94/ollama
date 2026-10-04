@@ -3,11 +3,16 @@
 # local de benchmarks (tools/bench-historial.json).
 #
 # Uso:
+#   python3 estimar-modelo.py                        # interactivo: pega URLs
 #   python3 estimar-modelo.py <url de ollama.com o HuggingFace>
 #   python3 estimar-modelo.py --params 4B --tamano 2.5GB
 #   python3 estimar-modelo.py --params 4B --tamano 2.5GB --ctx 8192
 #   python3 estimar-modelo.py --params 8B --tamano 5GB --moe   # fuerza clase MoE
 #   python3 estimar-modelo.py --params 3B --tamano 2GB --denso # fuerza clase densa
+#
+# Sin argumentos entra en modo interactivo: se pega la URL (o datos
+# manuales: `4B 2.5GB [ctx] [moe|denso]`) y se repite hasta pulsar
+# Enter vacío o escribir `q`.
 #
 # La estimación es un rango, no un número exacto: la velocidad real depende
 # del backend (CPU/Vulkan/CUDA), del offload a VRAM y del contexto elegido.
@@ -136,10 +141,19 @@ def resolver_hf(url):
         if not ggufs:
             raise ValueError(f"{repo_id} no publica ningún .gguf")
         print("Ficheros GGUF disponibles:")
-        for i, (nombre, tam) in enumerate(sorted(ggufs), 1):
+        ordenados = sorted(ggufs)
+        for i, (nombre, tam) in enumerate(ordenados, 1):
             print(f"  {i}) {nombre.split('/')[-1]}  ({gb(tam)})")
-        eleccion = input("Elige el fichero (número): ").strip()
-        nombre, peso = sorted(ggufs)[int(eleccion) - 1]
+        eleccion = input("Elige el fichero (número, 0 = cancelar): ").strip()
+        if eleccion in ("0", "", "q"):
+            raise ValueError("selección cancelada")
+        try:
+            idx = int(eleccion) - 1
+        except ValueError:
+            raise ValueError(f"opción no válida: {eleccion}")
+        if not 0 <= idx < len(ordenados):
+            raise ValueError(f"opción no válida: {eleccion}")
+        nombre, peso = ordenados[idx]
         etiqueta = f"{repo_id}/{nombre}"
     return gguf_total, peso, etiqueta
 
@@ -305,50 +319,30 @@ def grupo_relevante(meds, es_objetivo_moe):
         m for m in meds if not es_conversacional(m)]
 
 
-def main(argv):
-    params = tamano = ctx = None
-    objetivo = None
-    es_objetivo_moe = None
-    args = iter(argv[1:])
-    for a in args:
-        if a == "--params":
-            params = parse_params(next(args))
-        elif a == "--tamano":
-            tamano = parse_tamano(next(args))
-        elif a == "--ctx":
-            ctx = int(next(args))
-        elif a == "--moe":
-            es_objetivo_moe = True
-        elif a == "--denso":
-            es_objetivo_moe = False
-        elif a.startswith("-"):
-            sys.exit(f"Opción desconocida: {a}")
-        elif objetivo is None:
-            objetivo = a
-        else:
-            sys.exit("Demasiados argumentos posicionales.")
+def resolver_objetivo(objetivo):
+    """URL -> (params, tamaño, etiqueta) para ollama.com y HuggingFace."""
+    host = urllib.parse.urlparse(objetivo).netloc
+    if "ollama.com" in host:
+        return resolver_ollama(objetivo)
+    if "huggingface.co" in host:
+        return resolver_hf(objetivo)
+    raise ValueError("URL no soportada (solo ollama.com y huggingface.co).")
 
+
+def estimar_y_mostrar(params, tamano, ctx, es_objetivo_moe, objetivo=None):
+    """Calcula y muestra la estimación. Lanza ValueError con mensaje apto."""
     if objetivo:
-        host = urllib.parse.urlparse(objetivo).netloc
-        try:
-            if "ollama.com" in host:
-                params, tamano, etiqueta = resolver_ollama(objetivo)
-            elif "huggingface.co" in host:
-                params, tamano, etiqueta = resolver_hf(objetivo)
-            else:
-                sys.exit("URL no soportada (solo ollama.com y huggingface.co).")
-        except (ValueError, IndexError) as e:
-            sys.exit(f"Error: {e}")
+        params, tamano, etiqueta = resolver_objetivo(objetivo)
         print(f"Modelo: {etiqueta}")
+    elif tamano is None:
+        raise ValueError("Falta el tamaño (ej: --tamano 2.5GB).")
     else:
-        if tamano is None:
-            sys.exit("Indica una URL o al menos --tamano (ej: --tamano 2.5GB).")
         etiqueta = "modelo manual"
 
     meds = cargar_historial()
     if not meds:
-        sys.exit(f"No hay historial en {HISTORIAL}.\n"
-                 "Ejecuta primero: python3 tools/bench-ollama.py")
+        raise ValueError(f"No hay historial en {HISTORIAL}.\n"
+                         "Ejecuta primero: python3 tools/bench-ollama.py")
 
     if es_objetivo_moe is None:
         es_objetivo_moe = bool(re.search(r"moe|mixtral|deepseek|qwen3[.-]?\d.*a\d|bailing",
@@ -391,6 +385,109 @@ def main(argv):
               "caer a RAM: la velocidad real puede quedar por debajo del rango.")
     print("Rango orientativo: la velocidad real depende del backend, del "
           "offload a VRAM y del contexto elegido.")
+
+
+def parsear_linea(linea):
+    """Línea del modo interactivo: URL o datos manuales. None = salir."""
+    linea = linea.strip()
+    if not linea or linea.lower() in ("q", "quit", "salir", "exit"):
+        return None
+    if re.match(r"(www\.)?(ollama\.com|huggingface\.co)/", linea, re.I):
+        linea = "https://" + linea
+    if linea.startswith(("http://", "https://")):
+        return {"objetivo": linea}
+    params = tamano = ctx = es_objetivo_moe = None
+    for token in linea.split():
+        bajo = token.lower()
+        if bajo == "moe":
+            es_objetivo_moe = True
+        elif bajo == "denso":
+            es_objetivo_moe = False
+        elif re.fullmatch(r"\d+", token):
+            ctx = int(token)
+        elif params is None:
+            try:
+                params = parse_params(token)
+                continue
+            except ValueError:
+                pass
+            try:
+                if tamano is None:
+                    tamano = parse_tamano(token)
+                    continue
+            except ValueError:
+                pass
+            raise ValueError(f"dato no reconocido: {token} (usa: 4B 2.5GB "
+                             "[ctx] [moe|denso])")
+        elif tamano is None:
+            try:
+                tamano = parse_tamano(token)
+            except ValueError:
+                raise ValueError(f"tamaño no reconocido: {token} (ej: 2.5GB)")
+        else:
+            raise ValueError(f"dato no reconocido: {token}")
+    return {"params": params, "tamano": tamano, "ctx": ctx,
+            "moe": es_objetivo_moe}
+
+
+def interactivo():
+    """Bucle: se pega una URL (o datos manuales) y se estima en cada vuelta."""
+    print("Modo interactivo: pega la URL de ollama.com o HuggingFace, o "
+          "datos manuales (4B 2.5GB [ctx] [moe|denso]).")
+    print("Enter vacío o 'q' para salir.")
+    while True:
+        try:
+            linea = input("\n> ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        try:
+            spec = parsear_linea(linea)
+        except ValueError as e:
+            print(f"Error: {e}")
+            continue
+        if spec is None:
+            return
+        try:
+            estimar_y_mostrar(spec.get("params"), spec.get("tamano"),
+                              spec.get("ctx"), spec.get("moe"),
+                              spec.get("objetivo"))
+        except (ValueError, IndexError, OSError) as e:
+            print(f"Error: {e}")
+        except EOFError:
+            print()
+            return
+
+
+def main(argv):
+    if len(argv) <= 1:
+        interactivo()
+        return
+    params = tamano = ctx = None
+    objetivo = None
+    es_objetivo_moe = None
+    args = iter(argv[1:])
+    for a in args:
+        if a == "--params":
+            params = parse_params(next(args))
+        elif a == "--tamano":
+            tamano = parse_tamano(next(args))
+        elif a == "--ctx":
+            ctx = int(next(args))
+        elif a == "--moe":
+            es_objetivo_moe = True
+        elif a == "--denso":
+            es_objetivo_moe = False
+        elif a.startswith("-"):
+            sys.exit(f"Opción desconocida: {a}")
+        elif objetivo is None:
+            objetivo = a
+        else:
+            sys.exit("Demasiados argumentos posicionales.")
+    try:
+        estimar_y_mostrar(params, tamano, ctx, es_objetivo_moe, objetivo)
+    except (ValueError, IndexError, OSError) as e:
+        sys.exit(f"Error: {e}")
 
 
 if __name__ == "__main__":
