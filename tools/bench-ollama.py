@@ -7,6 +7,8 @@
 import datetime
 import json
 import os
+import re
+import sys
 import time
 import urllib.request
 
@@ -59,22 +61,43 @@ def guardar_historial(hist):
 
 
 def ficha_modelo(nombre):
-    """Parámetros, familia y cuantización vía /api/show (None si falla)."""
+    """Parámetros, familia, cuantización, MoE y capabilities vía /api/show."""
     try:
         show = post("/api/show", {"model": nombre}, timeout=30)
         info = show.get("model_info", {})
         detalles = show.get("details", {})
+        expertos_total = expertos_activos = None
+        for clave, valor in info.items():
+            if clave.endswith(".expert_count") and isinstance(valor, int):
+                expertos_total = valor
+            elif clave.endswith(".expert_used_count") and isinstance(valor, int):
+                expertos_activos = valor
         return {
             "parametros": info.get("general.parameter_count"),
             "familia": detalles.get("family"),
             "cuantizacion": detalles.get("quantization_level"),
+            "moe": expertos_total is not None and expertos_total > 1,
+            "expertos_total": expertos_total,
+            "expertos_activos": expertos_activos,
+            "capabilities": show.get("capabilities", []),
         }
     except Exception as e:
         print(f"  aviso: /api/show fallo para {nombre}: {e}", flush=True)
-        return {"parametros": None, "familia": None, "cuantizacion": None}
+        return {"parametros": None, "familia": None, "cuantizacion": None,
+                "moe": None, "expertos_total": None, "expertos_activos": None,
+                "capabilities": []}
+
+
+def ya_medido(hist, modelo, config):
+    return any(m.get("modelo") == modelo and m.get("config") == config
+               for m in hist.get("mediciones", []))
 
 
 print("Ollama", get("/api/version").get("version"), flush=True)
+
+forzar = "--forzar" in sys.argv[1:]
+if forzar:
+    print("Modo --forzar: se repiten todas las mediciones.", flush=True)
 
 models = [m["name"] for m in get("/api/tags")["models"]]
 print(f"Modelos: {models}", flush=True)
@@ -94,6 +117,14 @@ for m in models:
         print("  error en /api/show:", e, flush=True)
         continue
     passes = [("sin-think", False), ("con-think", True)] if "thinking" in caps else [("normal", None)]
+    if not forzar:
+        pendientes = [label for label, _ in passes if not ya_medido(hist, m, label)]
+        omitidas = [label for label, _ in passes if ya_medido(hist, m, label)]
+        for label in omitidas:
+            print(f"  {label}: ya medido (usa --forzar para repetir)", flush=True)
+        passes = [(label, think) for label, think in passes if label in pendientes]
+        if not passes:
+            continue
     for label, think in passes:
         # Warm-up (no se mide): carga el modelo en VRAM.
         wu = {"model": m, "messages": [{"role": "user", "content": "hola"}], "stream": False}
@@ -142,32 +173,46 @@ for m in models:
             "tamano_bytes": tamano,
             "familia": ficha.get("familia"),
             "cuantizacion": ficha.get("cuantizacion"),
+            "moe": ficha.get("moe"),
+            "expertos_total": ficha.get("expertos_total"),
+            "expertos_activos": ficha.get("expertos_activos"),
+            "capabilities": ficha.get("capabilities"),
         })
 
 unload_all()
 guardar_historial(hist)
 
-# Tabla resumen ordenada por media de tok/s descendente.
-if results:
-    print("\n=== RESUMEN (ordenado por tok/s) ===", flush=True)
+# Tabla resumen ordenada por media de tok/s descendente, desde el historial
+# (incluye modelos ya medidos en ejecuciones anteriores; los desinstalados
+# se marcan para saber que el dato sigue valiendo si se reinstalan).
+try:
+    instalados_ahora = {m["name"] for m in get("/api/tags").get("models", [])}
+except Exception:
+    instalados_ahora = set()
+resumen = {}
+for med in hist.get("mediciones", []):
+    clave = (med.get("modelo"), med.get("config"))
+    if clave not in resumen or med.get("fecha", "") >= resumen[clave].get("fecha", ""):
+        resumen[clave] = med
+
+if resumen:
+    print("\n=== RESUMEN (ordenado por tok/s, desde el historial) ===", flush=True)
     print(f"{'Modelo':<22} {'Config':<10} {'Min':>7} {'Max':>7} {'Media':>7}  "
-          f"{'Tokens':>9}  Notas", flush=True)
+          f"{'Fecha':<10}  Notas", flush=True)
     print("-" * 80, flush=True)
-    for m, label, mn, mx, avg, ecmin, ecmax, trunc in \
-            sorted(results, key=lambda r: r[4], reverse=True):
+    for med in sorted(resumen.values(), key=lambda r: r.get("tps_media", 0),
+                      reverse=True):
         notas = []
-        if trunc:
-            notas.append("truncado (num_predict)")
-        if any(c in label for c in "think") and label == "con-think":
-            pass
-        if label == "con-think":
+        if med.get("moe"):
+            notas.append(f"MoE {med.get('expertos_activos')}/"
+                         f"{med.get('expertos_total')}")
+        if med.get("config") == "con-think":
             notas.append("razonamiento activado")
-        elif label == "sin-think":
-            notas.append("")
-        elif label == "normal":
-            notas.append("")
-        notas_str = " ".join(n for n in notas if n)
-        print(f"{m:<22} {label:<10} {mn:>7.1f} {mx:>7.1f} {avg:>7.1f}  "
-              f"{ecmin}-{ecmax:>6}  {notas_str}", flush=True)
+        if med.get("modelo") not in instalados_ahora:
+            notas.append("(desinstalado)")
+        print(f"{med.get('modelo', '?'):<22} {med.get('config', '?'):<10} "
+              f"{med.get('tps_min', 0):>7.1f} {med.get('tps_max', 0):>7.1f} "
+              f"{med.get('tps_media', 0):>7.1f}  "
+              f"{med.get('fecha', '?'):<10}  {' '.join(notas)}", flush=True)
 
 print("\nfin", flush=True)
