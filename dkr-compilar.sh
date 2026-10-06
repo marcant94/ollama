@@ -25,3 +25,5 @@ case "${OLLAMA_GPU:-}" in
         docker compose up -d --build ollama
         ;;
 esac
+
+docker image prune -f
