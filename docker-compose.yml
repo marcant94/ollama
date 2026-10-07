@@ -13,6 +13,7 @@ services:
             OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL}
             OLLAMA_KEEP_ALIVE: 15m
             OLLAMA_CONTEXT_LENGTH: 16384
+            OLLAMA_KV_CACHE_TYPE: q8_0
         mem_limit: ${OLLAMA_MEM_LIMIT:-0}
         cpus: ${OLLAMA_CPUS:-0}
         ports:
