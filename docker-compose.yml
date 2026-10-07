@@ -11,7 +11,8 @@ services:
             - ./scripts:/scripts
         environment:
             OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL}
-            OLLAMA_KEEP_ALIVE: 10m
+            OLLAMA_KEEP_ALIVE: 15m
+            OLLAMA_CONTEXT_LENGTH: 16384
         mem_limit: ${OLLAMA_MEM_LIMIT:-0}
         cpus: ${OLLAMA_CPUS:-0}
         ports:
